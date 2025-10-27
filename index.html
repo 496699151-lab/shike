@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>十克 · 得物引力数据系统 Demo</title>
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- 主题变量（默认暗色，可一键切换浅色） -->
+<style>
+  :root{
+    --bg:#0b0c0f; --panel:rgba(255,255,255,.04); --panel-bd:rgba(255,255,255,.07);
+    --text:#ECEDEE; --sub:#9aa0a6; --line:#1a1d22; --neon:#59F3C1; --accent:#7AA6FF; --accent2:#FF5E8A;
+    --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+  }
+  [data-theme="light"]{
+    --bg:#f7f7f9; --panel:#ffffff; --panel-bd:rgba(0,0,0,.06);
+    --text:#0f172a; --sub:#667085; --line:#e5e7eb; --neon:#0ea5e9; --accent:#6366f1; --accent2:#ef4444;
+    --ok:#16a34a; --warn:#d97706; --bad:#dc2626;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1100px 700px at 10% -10%, rgba(89,243,193,0.10), transparent),
+      radial-gradient(900px 500px at 90% 0%, rgba(122,166,255,0.10), transparent),
+      var(--bg);
+    color:var(--text);
+    transition:background .4s ease,color .2s ease;
+    font-feature-settings:"ss01","cv01";
+  }
+  .card{ background:var(--panel); border:1px solid var(--panel-bd); border-radius:14px; backdrop-filter: blur(10px); }
+  .sub{ color:var(--sub) }
+  .divider{ border-color:var(--line) }
+  .btn{ border:1px solid var(--panel-bd); background:var(--panel); border-radius:10px }
+  .btn:hover{ box-shadow:0 0 0 1px rgba(89,243,193,.35) inset }
+  .kpi{ background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)); border:1px solid var(--panel-bd); border-radius:12px; }
+  .progress{ height:8px;background:var(--line);border-radius:999px;overflow:hidden }
+  .progress>i{display:block;height:100%;background:linear-gradient(90deg,var(--neon),var(--accent))}
+  .dot{ width:10px;height:10px;border-radius:999px;display:inline-block }
+  .sidebar a.active{ background:linear-gradient(180deg, rgba(122,166,255,.18), rgba(89,243,193,.12)); border:1px solid var(--panel-bd) }
+</style>
+
+<!-- React 18 + Babel + Recharts -->
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/recharts/umd/Recharts.js"></script>
+</head>
+<body>
+  <div id="root" style="height:100%"></div>
+
+  <script type="text/babel">
+  const {
+    ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
+    ComposedChart, Bar, Area, ScatterChart, Scatter, ZAxis, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+  } = Recharts;
+
+  // ========= 工具 =========
+  const fmt = n => typeof n === 'number' ? n.toLocaleString() : n;
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+
+  // ========= 主题 Hook =========
+  const useTheme = ()=>{
+    const [theme,setTheme] = React.useState('dark');
+    React.useEffect(()=>{
+      document.documentElement.setAttribute('data-theme', theme==='light' ? 'light' : '');
+    },[theme]);
+    return {theme,setTheme};
+  };
+
+  // ========= 假数据（可替换为接口）=========
+  // 统一日期维度
+  const days = Array.from({length:30}).map((_,i)=>`10-${String(i+1).padStart(2,'0')}`);
+  // 品牌引力总览（品牌引力数据管理页）
+  const brandOverview = {
+    tasks:52, posts:168, taskAmt:960000, postAvgPrice:5200,
+    expo:42639661, read:5378775, readMedian:31000,
+    interact:842211, detail:1414021, detailMedian:8800, fav:220115,
+    outfitExpo:3200011, outfitRead:880122
+  };
+  const brandSales = { // 销售总览
+    payGMV:15110000, payOrders:120110, payGMVNet:14600000, payOrdersNet:118000, AOV:121,
+    narrowGMV14:10088000, narrowOrders14:76000
+  };
+  // 趋势：四折线（14日归因GMV、去退GMV、阅读、商详）
+  const trendSeries = days.map((d)=>({
+    day:d,
+    gmv14: 300000 + Math.round(Math.random()*400000),
+    gmvNet: 360000 + Math.round(Math.random()*450000),
+    reads: 120000 + Math.round(Math.random()*160000),
+    detail: 28000 + Math.round(Math.random()*42000),
+  }));
+
+  // 任务列表（任务管理页）
+  const tasks = Array.from({length:8}).map((_,i)=>({
+    id:`T-10${i+1}`, brand:["Champion","FILA","ANTA","李宁","PUMA","NewBalance","adidas","Nike"][i%8],
+    period:"2025-09-12 ~ 10-11",
+    budget: 80000 + i*15000, spend: 30000 + i*12000,
+    readPlan: 300000 + i*20000, readActual: 250000 + i*22000,
+    detailPlan: 80000 + i*8000, detailActual: 72000 + i*7000,
+    gmvNarrowPlan: 500000 + i*50000, gmvNarrowActual: 420000 + i*52000,
+    gmvBroadPlan: 650000 + i*60000, gmvBroadActual: 540000 + i*61000
+  }));
+
+  // 达人池（达人池管理页）
+  const creators = Array.from({length:18}).map((_,i)=>({
+    id:`C${1000+i}`, name:`达人${i+1}`,
+    noteScore: Math.round(60+Math.random()*35), // 平均S_note
+    consistency: Math.round(55+Math.random()*35),
+    effScore: Math.round(55+Math.random()*40), // CPV/CVD 效率综合
+    roi: +(1.1+Math.random()*1.9).toFixed(2),
+    cpv:+(1+Math.random()*2.8).toFixed(2),
+    cvd:+(8+Math.random()*12).toFixed(1),
+    reads30: 100000 + Math.round(Math.random()*240000),
+    notes: 2 + Math.round(Math.random()*6),
+  })).map(c => ({...c, sCreator: Math.round(0.4*c.noteScore + 0.2*c.consistency + 0.4*c.effScore)}))
+    .sort((a,b)=>b.sCreator-a.sCreator);
+
+  // 智能报告（报告页）
+  const insightCards = [
+    {type:'chance', title:'机会 | 内容增长与GMV联动增强', desc:'近7日阅读与商详增长，14日归因GMV线性提升，建议增加高效内容产能与复投预算。'},
+    {type:'alert',  title:'告警 | 个别任务ROI下滑', desc:'T-103 连续3日 ROI 下滑且 CPV 上行，建议暂停低效内容并迁出20%预算至高分达人池。'},
+    {type:'opti',   title:'优化 | CTR偏低内容', desc:'CTR 低于品类均值 18%，建议优化封面、三秒吸引点与标题利益点表达。'}
+  ];
+
+  // ========= 小组件 =========
+  const KPI = ({label, value, sub})=>(
+    <div className="kpi p-3">
+      <div className="sub text-xs">{label}</div>
+      <div className="mt-1 text-xl font-semibold">{value}</div>
+      {sub && <div className="text-xs sub mt-1">{sub}</div>}
+    </div>
+  );
+
+  const Section = ({title,desc,children,extra})=>(
+    <section className="space-y-3">
+      <div className="flex items-end justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          {desc && <div className="sub text-xs mt-1">{desc}</div>}
+        </div>
+        {extra}
+      </div>
+      <div className="card p-4">{children}</div>
+    </section>
+  );
+
+  const InsightCard = ({type,title,desc})=>{
+    const color = type==='alert' ? 'var(--bad)' : type==='opti' ? 'var(--warn)' : 'var(--ok)';
+    return (
+      <div className="card p-4" style={{borderLeft:`4px solid ${color}`}}>
+        <div className="font-semibold">{title}</div>
+        <div className="sub text-sm mt-1">{desc}</div>
+      </div>
+    );
+  };
+
+  // ========= 页面：品牌引力数据管理 =========
+  const PageBrand = ()=>{
+    return (
+      <div className="space-y-6">
+        {/* 顶部筛选与操作 */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('筛选占位：时间/品牌/品类/达人标签')}>筛选</button>
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('导出占位：PNG/PDF/Excel')}>导出</button>
+          </div>
+          <div className="sub text-xs">数据口径：自然月（示例）</div>
+        </div>
+
+        {/* KPI 区：引力核心 & 销售核心 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+          <KPI label="任务数" value={fmt(brandOverview.tasks)} />
+          <KPI label="动态数" value={fmt(brandOverview.posts)} />
+          <KPI label="任务金额" value={'¥'+fmt(brandOverview.taskAmt)} />
+          <KPI label="动态均价" value={'¥'+fmt(brandOverview.postAvgPrice)} />
+          <KPI label="累计阅读" value={fmt(brandOverview.read)} />
+          <KPI label="累计商详" value={fmt(brandOverview.detail)} />
+          <KPI label="支付GMV(泛)" value={'¥'+fmt(brandSales.payGMV)} />
+          <KPI label="支付订单数" value={fmt(brandSales.payOrders)} />
+          <KPI label="去退GMV(泛)" value={'¥'+fmt(brandSales.payGMVNet)} />
+          <KPI label="14日归因GMV(窄)" value={'¥'+fmt(brandSales.narrowGMV14)} />
+          <KPI label="14日归因订单" value={fmt(brandSales.narrowOrders14)} />
+          <KPI label="客单价(AOV)" value={'¥'+fmt(brandSales.AOV)} />
+        </div>
+
+        {/* 趋势对比：四折线——内容与GMV联动 */}
+        <Section
+          title="趋势对比：内容×GMV 联动"
+          desc="观察动态内容阅读/商详 与 14日归因GMV、去退GMV 的联动趋势，辅助判断内容增长对GMV的贡献。"
+        >
+          <div className="h-80 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendSeries} margin={{top:10,right:20,left:0,bottom:0}}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
+                <XAxis dataKey="day" stroke="var(--sub)" />
+                <YAxis yAxisId="left" stroke="var(--sub)" tickFormatter={(v)=>`${(v/1000).toFixed(0)}k`} />
+                <YAxis yAxisId="right" orientation="right" stroke="var(--sub)" tickFormatter={(v)=>`${(v/1000).toFixed(0)}k`} />
+                <Tooltip />
+                <Legend />
+                <Line yAxisId="left" type="monotone" dataKey="reads"  name="阅读" stroke="var(--accent2)" strokeWidth="2"/>
+                <Line yAxisId="left" type="monotone" dataKey="detail" name="商详" stroke="#94a3b8" strokeWidth="2"/>
+                <Line yAxisId="right" type="monotone" dataKey="gmv14"  name="14日归因GMV(窄)" stroke="var(--neon)" strokeWidth="2"/>
+                <Line yAxisId="right" type="monotone" dataKey="gmvNet" name="去退GMV(泛)" stroke="var(--accent)" strokeWidth="2"/>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Section>
+
+        {/* 场域结构 + 转化漏斗（简版） */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <Section title="内容指标摘要" desc="阅读中位数、商详中位数、收藏量等补充指标">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <KPI label="篇均阅读(中位)" value={fmt(brandOverview.readMedian)} />
+              <KPI label="篇均商详(中位)" value={fmt(brandOverview.detailMedian)} />
+              <KPI label="累计收藏" value={fmt(brandOverview.fav)} />
+              <KPI label="穿搭精选曝光" value={fmt(brandOverview.outfitExpo)} />
+              <KPI label="穿搭精选阅读" value={fmt(brandOverview.outfitRead)} />
+              <KPI label="累计互动" value={fmt(brandOverview.interact)} />
+            </div>
+          </Section>
+          <Section title="ROI / 成本摘要" desc="关键效率指标（示意值），真实项目建议由后端计算口径统一">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <KPI label="ROI(窄)(示意)" value={(brandSales.narrowGMV14/brandOverview.taskAmt).toFixed(2)} />
+              <KPI label="ROI(泛)(示意)" value={(brandSales.payGMVNet/brandOverview.taskAmt).toFixed(2)} />
+              <KPI label="CPV(示意)" value={(brandOverview.taskAmt/brandOverview.read).toFixed(2)} />
+              <KPI label="CVD(示意)" value={(brandOverview.taskAmt/brandOverview.detail).toFixed(2)} />
+            </div>
+          </Section>
+        </div>
+      </div>
+    );
+  };
+
+  // ========= 页面：品牌引力任务管理 =========
+  const PageTasks = ()=>{
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-semibold">投放任务列表（计划 vs 实际）</div>
+          <div className="flex items-center gap-2">
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('创建任务表单占位：预算、目标、KPI预估、关联商品ID')}>+ 新建任务</button>
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('导出占位：CSV/Excel')}>导出</button>
+          </div>
+        </div>
+
+        <div className="card p-4 overflow-x-auto">
+          <table className="min-w-[1100px] w-full text-sm">
+            <thead className="sub">
+              <tr className="border-b divider">
+                <th className="text-left py-2 pr-3">任务编号</th>
+                <th className="text-left py-2 pr-3">品牌/周期</th>
+                <th className="text-left py-2 pr-3">预算(¥)</th>
+                <th className="text-left py-2 pr-3">已消耗(¥)</th>
+                <th className="text-left py-2 pr-3">预算完成</th>
+                <th className="text-left py-2 pr-3">阅读完成</th>
+                <th className="text-left py-2 pr-3">商详完成</th>
+                <th className="text-left py-2 pr-3">窄GMV完成</th>
+                <th className="text-left py-2 pr-3">泛GMV完成</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((t,idx)=>{
+                const pct=(a,b)=> clamp(Math.round(a/b*100),0,300);
+                const budgetPct=pct(t.spend,t.budget), readPct=pct(t.readActual,t.readPlan),
+                      detPct=pct(t.detailActual,t.detailPlan), narPct=pct(t.gmvNarrowActual,t.gmvNarrowPlan),
+                      broPct=pct(t.gmvBroadActual,t.gmvBroadPlan);
+                return (
+                  <tr key={idx} className="border-b divider hover:opacity-90">
+                    <td className="py-2 pr-3">{t.id}</td>
+                    <td className="py-2 pr-3 sub">{t.brand}<div className="text-xs">{t.period}</div></td>
+                    <td className="py-2 pr-3">{fmt(t.budget)}</td>
+                    <td className="py-2 pr-3">{fmt(t.spend)}</td>
+                    <td className="py-2 pr-3 w-44"><div className="progress"><i style={{width:`${budgetPct}%`}}></i></div><div className="text-xs sub mt-1">{budgetPct}%</div></td>
+                    <td className="py-2 pr-3 w-36"><div className="progress"><i style={{width:`${readPct}%`}}></i></div><div className="text-xs sub mt-1">{readPct}%</div></td>
+                    <td className="py-2 pr-3 w-36"><div className="progress"><i style={{width:`${detPct}%`}}></i></div><div className="text-xs sub mt-1">{detPct}%</div></td>
+                    <td className="py-2 pr-3 w-36"><div className="progress"><i style={{width:`${narPct}%`}}></i></div><div className="text-xs sub mt-1">{narPct}%</div></td>
+                    <td className="py-2 pr-3 w-36"><div className="progress"><i style={{width:`${broPct}%`}}></i></div><div className="text-xs sub mt-1">{broPct}%</div></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ========= 页面：品牌达人池管理 =========
+  const PageCreators = ()=>{
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="text-lg font-semibold">达人池（评分 / 效率 / 复投建议）</div>
+          <div className="flex items-center gap-2">
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('导入达人数据占位：CSV/Excel')}>导入达人</button>
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('导出占位：CSV/Excel')}>导出</button>
+          </div>
+        </div>
+
+        <div className="card p-4 overflow-x-auto">
+          <table className="min-w-[1050px] w-full text-sm">
+            <thead className="sub">
+              <tr className="border-b divider">
+                <th className="text-left py-2 pr-3">达人</th>
+                <th className="text-left py-2 pr-3">平均S_note</th>
+                <th className="text-left py-2 pr-3">一致性</th>
+                <th className="text-left py-2 pr-3">效率分</th>
+                <th className="text-left py-2 pr-3">S_creator</th>
+                <th className="text-left py-2 pr-3">ROI(近30d)</th>
+                <th className="text-left py-2 pr-3">CPV</th>
+                <th className="text-left py-2 pr-3">CVD</th>
+                <th className="text-left py-2 pr-3">阅读(30d)</th>
+                <th className="text-left py-2 pr-3">近30d动态数</th>
+                <th className="text-left py-2 pr-3">复投建议</th>
+              </tr>
+            </thead>
+            <tbody>
+              {creators.map((c,i)=>{
+                const color = c.sCreator>=80 ? 'var(--ok)' : (c.sCreator>=60 ? 'var(--warn)' : 'var(--bad)');
+                const advice = (c.sCreator>=80 && c.roi>=1.5 && c.cvd<=12) ? '强复投' : (c.sCreator<60 || c.cpv>=2.5) ? '谨慎' : '观察';
+                return (
+                  <tr key={i} className="border-b divider hover:opacity-90">
+                    <td className="py-2 pr-3">{c.name}</td>
+                    <td className="py-2 pr-3">{c.noteScore}</td>
+                    <td className="py-2 pr-3">{c.consistency}</td>
+                    <td className="py-2 pr-3">{c.effScore}</td>
+                    <td className="py-2 pr-3"><span style={{padding:'2px 8px',borderRadius:'999px',border:'1px solid var(--panel-bd)'}}>{c.sCreator}</span></td>
+                    <td className="py-2 pr-3">{c.roi}</td>
+                    <td className="py-2 pr-3">{c.cpv}</td>
+                    <td className="py-2 pr-3">{c.cvd}</td>
+                    <td className="py-2 pr-3">{fmt(c.reads30)}</td>
+                    <td className="py-2 pr-3">{c.notes}</td>
+                    <td className="py-2 pr-3" style={{color}}>
+                      {advice}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ========= 页面：引力智能报告生成 =========
+  const PageReports = ()=>{
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-lg font-semibold">引力智能报告生成</div>
+            <div className="sub text-xs mt-1">勾选维度 → 一键生成 → 下载 PDF / Word（示意）</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('一键生成报告：示例调用AI/后端渲染接口')}>⚡ 一键生成</button>
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('下载PDF：示意')}>下载PDF</button>
+            <button className="px-3 py-1.5 btn text-sm" onClick={()=>alert('下载Word：示意')}>下载Word</button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {insightCards.map((c,i)=><InsightCard key={i} {...c} />)}
+        </div>
+
+        <div className="card p-4">
+          <div className="font-semibold">报告提纲（示例）</div>
+          <ul className="list-disc pl-5 sub text-sm mt-2 space-y-1">
+            <li>概况：GMV与内容趋势、ROI与CPV/CVD、任务完成率</li>
+            <li>亮点：高 ROI 内容 / 高分达人 / CPM 加热正反馈</li>
+            <li>问题：ROI 下滑、CPV 上行、CTR 偏低、波动率异常</li>
+            <li>策略：预算迁移、内容形态调整、场域协同（穿搭精选）、复投白名单</li>
+          </ul>
+        </div>
+      </div>
+    );
+  };
+
+  // ========= 布局：左侧菜单 + 右侧内容 =========
+  const App = ()=>{
+    const {theme,setTheme} = useTheme();
+    const [tab,setTab] = React.useState('brand'); // brand | tasks | creators | reports
+
+    const NavItem = ({id,icon,label})=>(
+      <a
+        href="#"
+        className={`block px-3 py-2 rounded-md sub hover:opacity-90 ${tab===id?'active':''}`}
+        onClick={(e)=>{e.preventDefault();setTab(id)}}
+      >{icon} {label}</a>
+    );
+
+    return (
+      <div style={{height:'100%',display:'flex'}}>
+        {/* Sidebar */}
+        <aside className="sidebar" style={{width:'240px',padding:'16px',borderRight:'1px solid var(--panel-bd)'}}>
+          <div className="text-base font-semibold mb-2">十克 · 得物引力系统</div>
+          <div className="sub text-xs mb-4">品牌侧数据洞察与投放决策</div>
+          <nav className="space-y-1">
+            <NavItem id="brand"    icon="📊" label="品牌引力数据管理" />
+            <NavItem id="tasks"    icon="🗂️" label="品牌引力任务管理" />
+            <NavItem id="creators" icon="🧑‍🎤" label="品牌达人池管理" />
+            <NavItem id="reports"  icon="🧠" label="引力智能报告生成" />
+          </nav>
+
+          <div className="mt-6">
+            <button className="px-3 py-1.5 btn text-sm w-full" onClick={()=>setTheme(theme==='dark'?'light':'dark')}>
+              {theme==='dark' ? '☀️ 切换日间模式' : '🌙 切换夜间模式'}
+            </button>
+          </div>
+
+          <div className="sub text-xs mt-4">
+            © 十克系统 Demo<br/>可对接真实 API 与权限体系
+          </div>
+        </aside>
+
+        {/* Main */}
+        <main style={{flex:1,padding:'24px'}} className="space-y-6">
+          {tab==='brand'    && <PageBrand />}
+          {tab==='tasks'    && <PageTasks />}
+          {tab==='creators' && <PageCreators />}
+          {tab==='reports'  && <PageReports />}
+        </main>
+      </div>
+    );
+  };
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
